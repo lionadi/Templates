@@ -1,0 +1,152 @@
+version: '2'
+ 
+services:
+    mydatabase:
+        image: mydockerimageregistry.azurecr.io/mydatabase:0.1.0
+        container_name: mydatabase
+        restart: always
+        build:
+            context: .
+            dockerfile: postgredockerfile
+        ports:
+            - 5432:5432
+        environment:
+            POSTGRES_PASSWORD: f130e10792
+            
+        volumes:
+            - pgdata:/var/lib/postgresql/data
+        networks:
+            - mynetwork
+            
+    apiapp:
+        image: mydockerimageregistry.azurecr.io/apiapp:0.1.0
+        container_name: apiapp
+        ports:
+            - 8080:8080
+        environment:
+            SPRING_PROFILES_ACTIVE: localdevPostgre
+            SPRING_DATASOURCE_URL: jdbc:postgresql://mydatabase:5432/postgres
+        build:
+            context: .
+            dockerfile: DockerfileAPIApp
+        networks:
+            - mynetwork
+        volumes:
+            - applogs:/logs
+        depends_on:
+            - "elasticsearch1"
+            - "mydatabase"
+        links:
+            - mydatabase
+            
+    elasticsearch1:
+        image: docker.elastic.co/elasticsearch/elasticsearch:5.4.1
+        container_name: elasticsearch1
+        environment:
+            - cluster.name=docker-cluster
+            - bootstrap.memory_lock=true
+            - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+        ulimits:
+            memlock:
+                soft: -1
+                hard: -1
+            nofile:
+                soft: 65536
+                hard: 65536
+        mem_limit: 1g
+        cap_add:
+            - IPC_LOCK
+        volumes:
+            - esdata1:/usr/share/elasticsearch/data
+        ports:
+            - 9200:9200
+            - 9300:9300
+        networks:
+            - mynetwork
+    dockbeat:
+        image: mydockerimageregistry.azurecr.io/dockbeat:0.1.0
+        build:
+            context: .
+            dockerfile: dockerfileDockbeat
+        container_name: dockbeat
+        networks:
+            - mynetwork
+        volumes: 
+            - /var/run/docker.sock:/var/run/docker.sock
+        depends_on:
+            - "elasticsearch1"
+        cap_add:
+            - ALL
+ 
+    filebeat:
+        image: mydockerimageregistry.azurecr.io/filebeat:0.1.0
+        container_name: filebeat
+        restart: always
+        build:
+            context: .
+            dockerfile: dockerfileFilebeat
+        networks:
+            - mynetwork
+        volumes:
+            - applogs:/usr/share/filebeat/logs
+        depends_on:
+            - "elasticsearch1"
+            - "apiapp"
+    packetbeat:
+        image: mydockerimageregistry.azurecr.io/packetbeat:0.1.0
+        container_name: packetbeat
+        restart: always
+        build:
+            context: .
+            dockerfile: dockerfilePacketbeat
+        networks:
+            - mynetwork
+        volumes:
+            - applogs:/logs
+        depends_on:
+            - "elasticsearch1"
+            - "apiapp"
+        cap_add:
+            - NET_ADMIN
+    kibana:
+      image: docker.elastic.co/kibana/kibana:5.4.1
+      container_name: kibana
+      networks:
+         - mynetwork
+      ports:
+         - "9900:5601"
+      environment:
+         SERVER_NAME: kibana
+         SERVER_PORT: 5601
+         ELASTICSEARCH_URL: http://elasticsearch1:9200
+         XPACK_SECURITY_ENABLED: "true"
+         ELASTICSEARCH_PASSWORD: changeme
+         ELASTICSEARCH_USERNAME: elastic
+      depends_on:
+         - "elasticsearch1"
+         
+volumes:
+    pgdata:
+    
+    esdata1:
+        driver: local
+    esdata2:
+        driver: local
+  
+    applogs:
+networks:
+  mynetwork:
+    driver: bridge
+    ipam:
+     config:
+       - subnet: 172.10.0.0/16
+         gateway: 172.10.5.254
+         aux_addresses:
+          kibana: 172.10.1.8
+          packetbeat: 172.10.1.7
+          filebeat: 172.10.1.6
+          dockbeat: 172.10.1.5
+          elasticsearch2: 172.10.1.4
+          elasticsearch1: 172.10.1.3
+          mydatabase: 172.10.1.2
+          apiapp: 172.10.1.1

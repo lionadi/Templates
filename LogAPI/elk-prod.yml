@@ -1,0 +1,96 @@
+version: '2'
+services:
+    nodejsmongodb:
+        image: mongocustom:1.0.4
+        container_name: nodejsmongodb
+        environment:
+            MONGODB_APPLICATION_DATABASE: LogAPIDB
+            MONGODB_APPLICATION_USER: logapidbadmin
+            MONGODB_APPLICATION_PASS: 
+            MONGODB_ADMIN_USER: admin
+            MONGODB_ADMIN_PASS: 
+        ports:
+            - 27017:27017 
+        volumes:
+            - mongodbdata:/var/lib/mongodb/data
+    elasticsearch:
+        image: loges:1.0.0
+        container_name: elasticsearch
+        environment:
+            ELASTIC_PWD: changeme
+            KIBANA_PWD: changeme
+        volumes:
+            - esdata1:/usr/share/elasticsearch/data
+            - esdata1:/usr/share/elasticsearch/config 
+        ports:
+             - "9200:9200"
+             - "9300:9300"
+        #network_mode: bridge
+        restart: always
+    kibana:
+        image: logki:1.0.0
+        container_name: kibana
+        environment:
+            KIBANA_PWD: changeme
+            ELASTICSEARCH_HOST: elasticsearch
+            ELASTICSEARCH_PORT: 9200
+            ELASTICSEARCH_URL: http://elasticsearch:9200
+        volumes:
+            - kibanadata2:/etc/kibana
+        #ports:
+        #     - "5601:5601"
+        #network_mode: bridge
+        restart: always
+        depends_on:
+            - "elasticsearch"
+    logapifrontend:
+        image: logapi:1.1.2
+        container_name: logapifrontend
+        ports:
+            - "7080:7080"
+        environment:
+            NODE_ENV: production
+            ELASTICSEARCH_HOST: elasticsearch:9200
+            ELASTICSEARCH_PORT: 9200
+            MONGODB_HOST: nodejsmongodb
+            MONGODB_PORT: 27017
+            MONGODB_APPLICATION_DATABASE: LogAPIDB
+            MONGODB_APPLICATION_USER: logapidbadmin
+            MONGODB_APPLICATION_PASS: 
+            ELASTICSEARCH_HTTPAUTH: elastic:changeme
+            LOGAPI_ACCESS_USER: logadmin
+            LOGAPI_ACCESS_PASSWORD: 
+        depends_on:
+            - "nodejsmongodb"
+            - "elasticsearch"
+        restart: always
+    # Reverse Proxy for Kibana to provide a basic auth without x-pack. Notice: Remember to use HTTPS
+    nginx:
+        image: quay.io/dtan4/nginx-basic-auth-proxy:latest
+        ports:
+            - 8080:80
+            - 8090:8090
+        environment:
+            - BASIC_AUTH_USERNAME=username
+            - BASIC_AUTH_PASSWORD=password
+            - PROXY_PASS=http://kibana:5601/
+        depends_on:
+            - "kibana"
+    # Reverse Proxy for ELASTICSEARCH to provide a basic auth without x-pack. Notice: Remember to use HTTPS
+    nginx2:
+        image: quay.io/dtan4/nginx-basic-auth-proxy:latest
+        ports:
+            - 8081:80
+            - 8091:8090
+        environment:
+            - BASIC_AUTH_USERNAME=elastic
+            - BASIC_AUTH_PASSWORD=changeme
+            - PROXY_PASS=http://elasticsearch:9200/
+        depends_on:
+            - "elasticsearch"
+volumes:
+    mongodbdata:
+    esdata1:
+        driver: local
+    kibanadata2:
+        driver: local
